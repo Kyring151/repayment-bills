@@ -93,28 +93,21 @@
         </section>
 
         <!-- 月度汇总卡片 -->
-        <section class="grid grid-cols-3 gap-3">
-            <div class="bg-gradient-to-br from-primary/10 to-primary/5 rounded-2xl p-4 shadow-sm border border-primary/10">
-                <p class="text-xs text-gray-text mb-1">本月总账单</p>
-                <p class="text-xl font-bold text-primary" id="monthTotal">¥0.00</p>
+        <section class="rounded-2xl p-4 shadow-sm bg-gradient-to-r from-primary to-[#4080FF] text-white flex items-center justify-between">
+            <div>
+                <p class="text-xs text-white/80 mb-0.5">本月还款总额</p>
+                <p class="text-2xl font-bold" id="monthTotal">¥0.00</p>
             </div>
-            <div class="bg-gradient-to-br from-success/10 to-success/5 rounded-2xl p-4 shadow-sm border border-success/10">
-                <p class="text-xs text-gray-text mb-1">已还总额</p>
-                <p class="text-xl font-bold text-success" id="monthPaid">¥0.00</p>
-            </div>
-            <div class="bg-gradient-to-br from-warning/10 to-warning/5 rounded-2xl p-4 shadow-sm border border-warning/10">
-                <p class="text-xs text-gray-text mb-1">待还总额</p>
-                <p class="text-xl font-bold text-warning" id="monthUnpaid">¥0.00</p>
+            <div class="text-right">
+                <p class="text-xs text-white/80 mb-0.5">已记平台</p>
+                <p class="text-lg font-semibold" id="monthCount">0 个</p>
             </div>
         </section>
 
         <!-- 当月还款录入：9 个预设平台直接填写 -->
         <section class="space-y-3">
-            <div class="flex items-center justify-between">
-                <h2 class="text-base font-bold text-gray-800">当月还款 <span class="text-xs font-normal text-gray-text ml-1">直接填写金额，单位：元，自动保存</span></h2>
-                <span class="text-xs text-gray-text" id="billCount">已填 0 项</span>
-            </div>
-            <div id="platformGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <h2 class="text-base font-bold text-gray-800">当月还款 <span class="text-xs font-normal text-gray-text ml-1">填写金额即当月实际还款（元），自动保存</span></h2>
+            <div id="platformGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                 <!-- 平台录入卡片由 JS 动态生成（9 个预设 + 自定义） -->
             </div>
             <!-- 添加自定义项目 -->
@@ -131,7 +124,7 @@
             <h3 class="text-sm font-semibold text-gray-700 mb-1">
                 <span id="monthPieLabel">当月</span>各平台还款占比
             </h3>
-            <p class="text-xs text-gray-text mb-2">按账单金额统计</p>
+            <p class="text-xs text-gray-text mb-2">按当月实际还款金额统计</p>
             <div class="relative" style="height: 280px;">
                 <canvas id="monthPieChart"></canvas>
             </div>
@@ -140,25 +133,21 @@
         <!-- 年度统计板块 -->
         <section class="space-y-3 pt-2">
             <h2 class="text-base font-bold text-gray-800"><span id="yearLabel">2026</span> 年度统计</h2>
-            <div class="grid grid-cols-3 gap-3">
+            <div class="grid grid-cols-2 gap-3">
                 <div class="bg-gray-card rounded-2xl p-4 shadow-sm border border-gray-border">
-                    <p class="text-xs text-gray-text mb-1">年度总账单</p>
+                    <p class="text-xs text-gray-text mb-1">年度还款总额</p>
                     <p class="text-lg font-bold text-primary" id="yearTotal">¥0.00</p>
                 </div>
                 <div class="bg-gray-card rounded-2xl p-4 shadow-sm border border-gray-border">
-                    <p class="text-xs text-gray-text mb-1">年度已还</p>
-                    <p class="text-lg font-bold text-success" id="yearPaid">¥0.00</p>
-                </div>
-                <div class="bg-gray-card rounded-2xl p-4 shadow-sm border border-gray-border">
-                    <p class="text-xs text-gray-text mb-1">年度待还</p>
-                    <p class="text-lg font-bold text-warning" id="yearUnpaid">¥0.00</p>
+                    <p class="text-xs text-gray-text mb-1">月均还款</p>
+                    <p class="text-lg font-bold text-success" id="yearAvg">¥0.00</p>
                 </div>
             </div>
 
             <!-- 图表区域：年度饼图 + 月度趋势 -->
             <div class="bg-gray-card rounded-2xl p-4 shadow-sm border border-gray-border">
                 <h3 class="text-sm font-semibold text-gray-700 mb-1">各平台年度占比</h3>
-                <p class="text-xs text-gray-text mb-2">按全年账单金额统计</p>
+                <p class="text-xs text-gray-text mb-2">按全年实际还款金额统计</p>
                 <div class="relative" style="height: 280px;">
                     <canvas id="yearPieChart"></canvas>
                 </div>

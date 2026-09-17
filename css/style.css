@@ -28,13 +28,13 @@ body {
 
 /* 平台图标圆角方块 */
 .platform-icon {
-    width: 34px;
-    height: 34px;
+    width: 28px;
+    height: 28px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: 10px;
-    font-size: 18px;
+    border-radius: 8px;
+    font-size: 15px;
     line-height: 1;
     flex-shrink: 0;
 }
