@@ -1,0 +1,5 @@
+.trae-html-share-packages/
+.DS_Store
+Thumbs.db
+*.log
+node_modules/
