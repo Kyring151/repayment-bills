@@ -2,6 +2,7 @@
  * 还款账单工作台 - 核心逻辑
  * 数据存储：LocalStorage
  * 架构：原生 JavaScript，无框架
+ * 交互：9 个预设平台内联录入 + 自定义项目
  * ============================================ */
 
 (function () {
@@ -10,64 +11,63 @@
     // ---------- 常量配置 ----------
     const STORAGE_KEY = 'repayment_bills_v1';
 
-    // 固定平台列表（9 个，含颜色标识）
+    // 固定平台列表（9 个，含颜色与图标）
     const DEFAULT_PLATFORMS = [
-        { name: '微信分付', color: '#07C160' },
-        { name: '信用卡',   color: '#165DFF' },
-        { name: '车贷',     color: '#722ED1' },
-        { name: '保险',     color: '#F53F3F' },
-        { name: '花呗',     color: '#FF7D00' },
-        { name: '拿去花',   color: '#FF9A2E' },
-        { name: '白条',     color: '#EAB308' },
-        { name: '美团月付', color: '#FFD100' },
-        { name: '抖音月付', color: '#000000' }
+        { name: '微信分付', color: '#07C160', icon: '💬' },
+        { name: '信用卡',   color: '#165DFF', icon: '💳' },
+        { name: '车贷',     color: '#722ED1', icon: '🚗' },
+        { name: '保险',     color: '#F53F3F', icon: '🛡️' },
+        { name: '花呗',     color: '#FF7D00', icon: '😊' },
+        { name: '拿去花',   color: '#FF9A2E', icon: '✈️' },
+        { name: '白条',     color: '#D4A017', icon: '🧾' },
+        { name: '美团月付', color: '#F5A623', icon: '🍔' },
+        { name: '抖音月付', color: '#1D2129', icon: '🎵' }
     ];
 
-    // Chart.js 配色（饼图/趋势图用）
+    // 自定义项目自动分配的颜色盘
     const CHART_COLORS = [
-        '#165DFF', '#00B42A', '#FF7D00', '#F53F3F', '#722ED1',
-        '#0FC6C2', '#FF9A2E', '#86909C', '#14C9C9', '#F7BA1E'
+        '#0FC6C2', '#F7BA1E', '#14C9C9', '#F5319D', '#3491FA',
+        '#722ED1', '#FF7D00', '#00B42A', '#F53F3F', '#86909C'
     ];
 
     // ---------- 状态 ----------
     let state = {
         currentYear: new Date().getFullYear(),
         currentMonth: new Date().getMonth() + 1, // 1-12
-        bills: {}, // 结构：{ '2026-09': [ {id, platform, amount, paid, dueDate, remark}, ... ] }
-        customPlatforms: [] // 用户自定义平台
+        bills: {}, // 结构：{ '2026-09': [ {id, platform, amount, paid, dueDate, remark, custom, color}, ... ] }
+        customPlatforms: [] // 兼容旧版本数据
     };
 
-    let platformChart = null;
+    // 图表实例
+    let monthPieChart = null;
+    let yearPieChart = null;
     let trendChart = null;
+
+    // 录入自动保存防抖
+    let saveTimer = null;
 
     // ---------- 工具函数 ----------
 
-    /** 生成唯一 ID */
     function genId() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     }
 
-    /** 格式化金额为 ¥xxx.xx */
     function fmtMoney(num) {
         const n = Number(num) || 0;
         return '¥' + n.toFixed(2);
     }
 
-    /** 获取月份 key，如 '2026-09' */
     function monthKey(year, month) {
-        return `${year}-${String(month).padStart(2, '0')}`;
+        return year + '-' + String(month).padStart(2, '0');
     }
 
-    /** 获取当月账单列表 */
     function getMonthBills(year, month) {
-        const key = monthKey(year, month);
-        return state.bills[key] || [];
+        return state.bills[monthKey(year, month)] || [];
     }
 
-    /** 保存当月账单 */
     function setMonthBills(year, month, bills) {
         const key = monthKey(year, month);
-        if (bills.length === 0) {
+        if (!bills || bills.length === 0) {
             delete state.bills[key];
         } else {
             state.bills[key] = bills;
@@ -75,7 +75,6 @@
         saveStorage();
     }
 
-    /** 读取 LocalStorage */
     function loadStorage() {
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
@@ -92,67 +91,65 @@
         return false;
     }
 
-    /** 写入 LocalStorage */
     function saveStorage() {
         try {
-            const data = {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
                 bills: state.bills,
                 customPlatforms: state.customPlatforms,
                 updatedAt: new Date().toISOString()
-            };
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            }));
         } catch (e) {
             console.warn('保存数据失败:', e);
             showToast('保存失败，存储空间可能已满', 'error');
         }
     }
 
-    /** 获取所有平台（默认 + 自定义） */
-    function getAllPlatforms() {
-        return [...DEFAULT_PLATFORMS, ...state.customPlatforms];
-    }
-
-    /** 根据平台名获取颜色 */
+    /** 平台颜色：预设平台取固定色，自定义项目取记录中保存的颜色 */
     function getPlatformColor(name) {
-        const p = getAllPlatforms().find(p => p.name === name);
-        return p ? p.color : '#86909C';
+        const p = DEFAULT_PLATFORMS.find(p => p.name === name);
+        if (p) return p.color;
+        // 在所有月份的自定义账单中查找该项目的颜色
+        const months = Object.keys(state.bills);
+        for (let i = 0; i < months.length; i++) {
+            const bill = state.bills[months[i]].find(b => b.platform === name && b.color);
+            if (bill) return bill.color;
+        }
+        return '#86909C';
     }
 
-    /** 计算账单的状态标签 */
-    function getBillStatus(bill) {
-        const amount = Number(bill.amount) || 0;
-        const paid = Number(bill.paid) || 0;
-        if (paid <= 0) return { text: '待还', class: 'tag-unpaid' };
-        if (paid >= amount) return { text: '已还清', class: 'tag-paid' };
-        return { text: '部分还款', class: 'tag-partial' };
+    function getPlatformIcon(name) {
+        const p = DEFAULT_PLATFORMS.find(p => p.name === name);
+        return p ? p.icon : '🏷️';
     }
 
-    /** 显示 Toast */
+    function escapeHtml(str) {
+        if (str == null) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    // ---------- Toast & 确认弹窗 ----------
+
     let toastTimer = null;
-    function showToast(msg, type = 'success') {
+    function showToast(msg, type) {
         const toast = document.getElementById('toast');
         if (!toast) return;
         toast.textContent = msg;
-        toast.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-white text-sm shadow-lg transition-all pointer-events-none toast-show';
-        if (type === 'error') {
-            toast.classList.add('bg-danger/90');
-        } else if (type === 'warning') {
-            toast.classList.add('bg-warning/90');
-        } else {
-            toast.classList.add('bg-gray-800/90');
-        }
+        toast.className = 'fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl text-white text-sm shadow-lg pointer-events-none toast-show';
+        toast.classList.add(type === 'error' ? 'bg-danger/90'
+            : type === 'warning' ? 'bg-warning/90'
+            : 'bg-gray-800/90');
         if (toastTimer) clearTimeout(toastTimer);
-        toastTimer = setTimeout(() => {
+        toastTimer = setTimeout(function () {
             toast.classList.remove('toast-show');
             toast.classList.add('toast-hide');
-            setTimeout(() => {
-                toast.classList.remove('toast-hide');
-                toast.style.opacity = '0';
-            }, 300);
         }, 2000);
     }
 
-    /** 确认弹窗 */
     function showConfirm(title, msg, onOk) {
         const modal = document.getElementById('confirmModal');
         const content = modal.querySelector('.modal-content');
@@ -166,230 +163,368 @@
         const okBtn = document.getElementById('btnConfirmOk');
         const cancelBtn = document.getElementById('btnConfirmCancel');
 
-        const close = () => {
+        function close() {
             content.classList.remove('modal-enter');
             content.classList.add('modal-leave');
-            setTimeout(() => {
+            setTimeout(function () {
                 modal.classList.add('hidden');
                 modal.classList.remove('flex');
             }, 180);
-        };
-
-        const okHandler = () => {
+        }
+        function okHandler() {
             okBtn.removeEventListener('click', okHandler);
             cancelBtn.removeEventListener('click', cancelHandler);
             close();
             onOk && onOk();
-        };
-        const cancelHandler = () => {
+        }
+        function cancelHandler() {
             okBtn.removeEventListener('click', okHandler);
             cancelBtn.removeEventListener('click', cancelHandler);
             close();
-        };
-
+        }
         okBtn.addEventListener('click', okHandler);
         cancelBtn.addEventListener('click', cancelHandler);
     }
 
-    // ---------- 渲染：年月选择 ----------
+    // ---------- 年月选择 ----------
 
     function renderYearMonthSelectors() {
         const yearSel = document.getElementById('yearSelect');
         const monthSel = document.getElementById('monthSelect');
-
-        // 年份：前后 5 年
         const now = new Date().getFullYear();
         let html = '';
         for (let y = now - 5; y <= now + 5; y++) {
-            html += `<option value="${y}" ${y === state.currentYear ? 'selected' : ''}>${y} 年</option>`;
+            html += '<option value="' + y + '"' + (y === state.currentYear ? ' selected' : '') + '>' + y + ' 年</option>';
         }
         yearSel.innerHTML = html;
 
-        // 月份
         let mhtml = '';
         for (let m = 1; m <= 12; m++) {
-            mhtml += `<option value="${m}" ${m === state.currentMonth ? 'selected' : ''}>${m} 月</option>`;
+            mhtml += '<option value="' + m + '"' + (m === state.currentMonth ? ' selected' : '') + '>' + m + ' 月</option>';
         }
         monthSel.innerHTML = mhtml;
     }
 
-    // ---------- 渲染：月度账单列表 ----------
+    // ---------- 平台录入网格 ----------
 
-    function renderBillList() {
-        const list = document.getElementById('billList');
-        const empty = document.getElementById('emptyState');
+    /**
+     * 渲染当月录入网格：
+     * 9 个预设平台始终显示；当月的自定义账单追加在后面
+     * 注意：仅在切换月份 / 增删自定义项目时整体重绘，输入过程中不重绘以免丢失焦点
+     */
+    function renderPlatformGrid() {
+        const grid = document.getElementById('platformGrid');
         const bills = getMonthBills(state.currentYear, state.currentMonth);
-
-        document.getElementById('billCount').textContent = `共 ${bills.length} 项`;
-
-        if (bills.length === 0) {
-            list.innerHTML = '';
-            empty.classList.remove('hidden');
-            return;
-        }
-        empty.classList.add('hidden');
-
-        // 按还款日排序（有日期的在前，无日期在后）
-        const sorted = [...bills].sort((a, b) => {
-            if (!a.dueDate && !b.dueDate) return 0;
-            if (!a.dueDate) return 1;
-            if (!b.dueDate) return -1;
-            return a.dueDate.localeCompare(b.dueDate);
-        });
+        const findBill = function (name) { return bills.find(b => b.platform === name); };
 
         let html = '';
-        sorted.forEach(bill => {
-            const amount = Number(bill.amount) || 0;
-            const paid = Number(bill.paid) || 0;
-            const unpaid = Math.max(0, amount - paid);
-            const progress = amount > 0 ? Math.min(100, (paid / amount) * 100) : 0;
-            const status = getBillStatus(bill);
-            const color = getPlatformColor(bill.platform);
 
-            html += `
-            <div class="bill-card bg-gray-card rounded-2xl shadow-sm border border-gray-border overflow-hidden flex">
-                <div class="platform-bar" style="background-color: ${color};"></div>
-                <div class="flex-1 p-4">
-                    <div class="flex items-start justify-between gap-2 mb-2">
-                        <div class="flex items-center gap-2 min-w-0">
-                            <span class="text-base font-semibold text-gray-800 truncate">${escapeHtml(bill.platform)}</span>
-                            <span class="tag ${status.class}">${status.text}</span>
-                        </div>
-                        <div class="bill-actions flex-shrink-0">
-                            <button data-action="edit" data-id="${bill.id}" class="p-1.5 rounded-lg text-gray-text hover:text-primary hover:bg-primary/10 transition-colors" title="编辑">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
-                                </svg>
-                            </button>
-                            <button data-action="delete" data-id="${bill.id}" class="p-1.5 rounded-lg text-gray-text hover:text-danger hover:bg-danger/10 transition-colors" title="删除">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-3 gap-2 mb-3">
-                        <div>
-                            <p class="text-xs text-gray-text mb-0.5">账单金额</p>
-                            <p class="text-sm font-semibold text-gray-800">${fmtMoney(amount)}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs text-gray-text mb-0.5">已还</p>
-                            <p class="text-sm font-semibold text-success">${fmtMoney(paid)}</p>
-                        </div>
-                        <div>
-                            <p class="text-xs text-gray-text mb-0.5">待还</p>
-                            <p class="text-sm font-semibold text-warning">${fmtMoney(unpaid)}</p>
-                        </div>
-                    </div>
-                    <div class="mb-2">
-                        <div class="flex justify-between text-xs text-gray-text mb-1">
-                            <span>还款进度</span>
-                            <span>${progress.toFixed(1)}%</span>
-                        </div>
-                        <div class="h-1.5 bg-gray-border rounded-full overflow-hidden">
-                            <div class="progress-bar h-full rounded-full ${paid >= amount ? 'bg-success' : 'bg-primary'}" style="width: ${progress}%;"></div>
-                        </div>
-                    </div>
-                    <div class="flex items-center justify-between text-xs text-gray-text">
-                        <span>${bill.dueDate ? '还款日：' + bill.dueDate : '未设置还款日'}</span>
-                        ${bill.remark ? `<span class="truncate ml-2" title="${escapeHtml(bill.remark)}">📝 ${escapeHtml(bill.remark)}</span>` : ''}
-                    </div>
-                </div>
-            </div>`;
+        // 预设 9 个平台
+        DEFAULT_PLATFORMS.forEach(function (p) {
+            html += buildCardHtml(p.name, p.color, p.icon, findBill(p.name), false);
         });
-        list.innerHTML = html;
 
-        // 绑定操作按钮
-        list.querySelectorAll('button[data-action]').forEach(btn => {
-            btn.addEventListener('click', handleBillAction);
+        // 当月自定义项目（按添加顺序）
+        bills.filter(b => b.custom).forEach(function (b) {
+            html += buildCardHtml(b.platform, b.color || '#86909C', '🏷️', b, true);
         });
+
+        grid.innerHTML = html;
+
+        // 绑定每张卡片的实时状态更新（待还金额 / 高亮）
+        grid.querySelectorAll('.platform-card').forEach(updateCardState);
+
+        document.getElementById('billCount').textContent = '已填 ' + countFilled(bills) + ' 项';
     }
 
-    /** 处理账单卡片上的操作 */
-    function handleBillAction(e) {
-        const btn = e.currentTarget;
-        const action = btn.dataset.action;
-        const id = btn.dataset.id;
-        if (action === 'edit') {
-            openEditModal(id);
-        } else if (action === 'delete') {
-            deleteBill(id);
+    function buildCardHtml(platform, color, icon, bill, isCustom) {
+        const amount = bill && Number(bill.amount) ? String(bill.amount) : '';
+        const paid = bill && Number(bill.paid) ? String(bill.paid) : '';
+        const dueDate = bill && bill.dueDate ? bill.dueDate : '';
+
+        let html = '<div class="platform-card bg-gray-card rounded-2xl shadow-sm border border-gray-border p-3.5" '
+            + 'data-platform="' + escapeHtml(platform) + '"' + (isCustom ? ' data-custom="1"' : '') + '>';
+
+        // 标题行：图标 + 名称 +（自定义删除按钮）+ 待还
+        html += '<div class="flex items-center gap-2 mb-3">';
+        html += '<span class="platform-icon flex-shrink-0" style="background-color:' + hexToRgba(color, 0.12) + ';">' + icon + '</span>';
+        html += '<span class="text-sm font-semibold text-gray-800 truncate">' + escapeHtml(platform) + '</span>';
+        if (isCustom) {
+            html += '<button type="button" data-action="delete-custom" class="ml-auto flex-shrink-0 w-6 h-6 rounded-lg text-gray-text hover:text-danger hover:bg-danger/10 transition-colors flex items-center justify-center" title="删除该项目">';
+            html += '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>';
+            html += '</button>';
+        } else {
+            html += '<span class="ml-auto flex-shrink-0"></span>';
+        }
+        html += '</div>';
+
+        // 待还金额行
+        html += '<p class="text-xs text-gray-text mb-2">待还 <span class="unpaid-label text-sm font-bold text-warning" data-role="unpaid">¥0.00</span></p>';
+
+        // 金额输入：账单 / 已还
+        html += '<div class="grid grid-cols-2 gap-2 mb-2">';
+        html += '<div>';
+        html += '<label class="text-[11px] text-gray-text block mb-1">账单金额(元)</label>';
+        html += '<input type="number" inputmode="decimal" step="0.01" min="0" data-field="amount" value="' + amount + '" placeholder="0.00" class="money-input w-full bg-gray-bg border border-gray-border rounded-lg px-2.5 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">';
+        html += '</div>';
+        html += '<div>';
+        html += '<label class="text-[11px] text-gray-text block mb-1">已还(元)</label>';
+        html += '<input type="number" inputmode="decimal" step="0.01" min="0" data-field="paid" value="' + paid + '" placeholder="0.00" class="money-input w-full bg-gray-bg border border-gray-border rounded-lg px-2.5 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-success/30 focus:border-success transition-all">';
+        html += '</div>';
+        html += '</div>';
+
+        // 还款日
+        html += '<label class="text-[11px] text-gray-text block mb-1">还款日</label>';
+        html += '<input type="date" data-field="dueDate" value="' + dueDate + '" class="date-input w-full bg-gray-bg border border-gray-border rounded-lg px-2.5 py-1.5 text-xs text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">';
+
+        html += '</div>';
+        return html;
+    }
+
+    /** 根据卡片内输入值刷新待还金额与高亮状态（不重绘、不丢焦点） */
+    function updateCardState(card) {
+        const amount = parseFloat(card.querySelector('[data-field="amount"]').value) || 0;
+        const paid = parseFloat(card.querySelector('[data-field="paid"]').value) || 0;
+        const dueDate = card.querySelector('[data-field="dueDate"]').value;
+        const unpaid = Math.max(0, amount - paid);
+
+        const label = card.querySelector('[data-role="unpaid"]');
+        label.textContent = fmtMoney(unpaid);
+        label.className = 'unpaid-label text-sm font-bold ' + (unpaid > 0 ? 'text-warning' : (amount > 0 ? 'text-success' : 'text-gray-text'));
+
+        if (amount > 0 || paid > 0 || dueDate) {
+            card.classList.add('has-data');
+        } else {
+            card.classList.remove('has-data');
         }
     }
 
-    // ---------- 渲染：月度统计 ----------
+    function countFilled(bills) {
+        return bills.filter(b => (Number(b.amount) || 0) > 0 || (Number(b.paid) || 0) > 0 || b.dueDate).length;
+    }
 
-    function renderMonthStats() {
+    /**
+     * 序列化整个录入网格并保存：
+     * 有金额或日期的卡片生成/更新账单记录，全空的卡片删除记录
+     */
+    function saveGrid() {
+        const grid = document.getElementById('platformGrid');
+        const cards = grid.querySelectorAll('.platform-card');
+        const oldBills = getMonthBills(state.currentYear, state.currentMonth);
+        const newBills = [];
+
+        cards.forEach(function (card) {
+            const platform = card.dataset.platform;
+            const isCustom = card.dataset.custom === '1';
+            const amount = parseFloat(card.querySelector('[data-field="amount"]').value) || 0;
+            const paid = parseFloat(card.querySelector('[data-field="paid"]').value) || 0;
+            const dueDate = card.querySelector('[data-field="dueDate"]').value || '';
+            const old = oldBills.find(b => b.platform === platform);
+
+            // 全空：预设平台不保留记录；自定义项目保留空壳（否则卡片会消失）
+            if (amount === 0 && paid === 0 && !dueDate && !isCustom) return;
+
+            newBills.push({
+                id: old ? old.id : genId(),
+                platform: platform,
+                amount: amount,
+                paid: paid,
+                dueDate: dueDate,
+                remark: old ? (old.remark || '') : '',
+                custom: isCustom || (old && old.custom) || false,
+                color: old ? (old.color || getPlatformColor(platform)) : getPlatformColor(platform)
+            });
+        });
+
+        setMonthBills(state.currentYear, state.currentMonth, newBills);
+
+        document.getElementById('billCount').textContent = '已填 ' + countFilled(newBills) + ' 项';
+        renderStatsAndCharts();
+    }
+
+    function scheduleSave() {
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveGrid, 400);
+    }
+
+    // ---------- 自定义项目 ----------
+
+    function openCustomModal() {
+        const modal = document.getElementById('customModal');
+        const content = modal.querySelector('.modal-content');
+        document.getElementById('customForm').reset();
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        content.classList.remove('modal-leave');
+        content.classList.add('modal-enter');
+        setTimeout(function () { document.getElementById('customName').focus(); }, 200);
+    }
+
+    function hideCustomModal() {
+        const modal = document.getElementById('customModal');
+        const content = modal.querySelector('.modal-content');
+        content.classList.remove('modal-enter');
+        content.classList.add('modal-leave');
+        setTimeout(function () {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }, 180);
+    }
+
+    function addCustomItem(name) {
+        name = name.trim();
+        if (!name) {
+            showToast('请输入项目名称', 'warning');
+            return false;
+        }
+        if (DEFAULT_PLATFORMS.some(p => p.name === name)) {
+            showToast('该平台已在预设列表中', 'warning');
+            return false;
+        }
         const bills = getMonthBills(state.currentYear, state.currentMonth);
+        if (bills.some(b => b.platform === name)) {
+            showToast('当月已存在同名项目', 'warning');
+            return false;
+        }
+
+        // 自动分配颜色：避开预设已用色
+        const usedColors = DEFAULT_PLATFORMS.map(p => p.color)
+            .concat(bills.filter(b => b.custom).map(b => b.color));
+        let color = CHART_COLORS.find(c => usedColors.indexOf(c) === -1) || CHART_COLORS[bills.length % CHART_COLORS.length];
+
+        bills.push({
+            id: genId(),
+            platform: name,
+            amount: 0,
+            paid: 0,
+            dueDate: '',
+            remark: '',
+            custom: true,
+            color: color
+        });
+        setMonthBills(state.currentYear, state.currentMonth, bills);
+        renderPlatformGrid();
+        renderStatsAndCharts();
+        showToast('已添加「' + name + '」');
+        return true;
+    }
+
+    function deleteCustomItem(platform) {
+        const bills = getMonthBills(state.currentYear, state.currentMonth);
+        const bill = bills.find(b => b.platform === platform && b.custom);
+        if (!bill) return;
+        const hasData = (Number(bill.amount) || 0) > 0 || (Number(bill.paid) || 0) > 0 || bill.dueDate;
+        showConfirm(
+            '删除自定义项目',
+            '确定要删除当月的「' + platform + '」吗？' + (hasData ? '其中已填写的金额也会一并删除。' : ''),
+            function () {
+                setMonthBills(state.currentYear, state.currentMonth, bills.filter(b => b.id !== bill.id));
+                renderPlatformGrid();
+                renderStatsAndCharts();
+                showToast('已删除');
+            }
+        );
+    }
+
+    // ---------- 清空当月 ----------
+
+    function clearMonthBills() {
+        const bills = getMonthBills(state.currentYear, state.currentMonth);
+        if (bills.length === 0) {
+            showToast('当月暂无数据', 'warning');
+            return;
+        }
+        showConfirm(
+            '清空当月数据',
+            '确定要清空 ' + state.currentYear + ' 年 ' + state.currentMonth + ' 月的所有金额吗？自定义项目也会被删除，此操作不可撤销。',
+            function () {
+                setMonthBills(state.currentYear, state.currentMonth, []);
+                renderPlatformGrid();
+                renderStatsAndCharts();
+                showToast('当月数据已清空');
+            }
+        );
+    }
+
+    // ---------- 统计 ----------
+
+    function sumBills(bills) {
         let total = 0, paid = 0;
-        bills.forEach(b => {
+        bills.forEach(function (b) {
             total += Number(b.amount) || 0;
             paid += Number(b.paid) || 0;
         });
-        const unpaid = Math.max(0, total - paid);
-        document.getElementById('monthTotal').textContent = fmtMoney(total);
-        document.getElementById('monthPaid').textContent = fmtMoney(paid);
-        document.getElementById('monthUnpaid').textContent = fmtMoney(unpaid);
+        return { total: total, paid: paid, unpaid: Math.max(0, total - paid) };
     }
 
-    // ---------- 渲染：年度统计 ----------
+    function renderMonthStats() {
+        const s = sumBills(getMonthBills(state.currentYear, state.currentMonth));
+        document.getElementById('monthTotal').textContent = fmtMoney(s.total);
+        document.getElementById('monthPaid').textContent = fmtMoney(s.paid);
+        document.getElementById('monthUnpaid').textContent = fmtMoney(s.unpaid);
+        document.getElementById('monthPieLabel').textContent = state.currentMonth + ' 月';
+    }
 
     function renderYearStats() {
         document.getElementById('yearLabel').textContent = state.currentYear;
-
-        let total = 0, paid = 0;
+        const all = [];
         for (let m = 1; m <= 12; m++) {
-            const bills = getMonthBills(state.currentYear, m);
-            bills.forEach(b => {
-                total += Number(b.amount) || 0;
-                paid += Number(b.paid) || 0;
-            });
+            getMonthBills(state.currentYear, m).forEach(b => all.push(b));
         }
-        const unpaid = Math.max(0, total - paid);
-        document.getElementById('yearTotal').textContent = fmtMoney(total);
-        document.getElementById('yearPaid').textContent = fmtMoney(paid);
-        document.getElementById('yearUnpaid').textContent = fmtMoney(unpaid);
+        const s = sumBills(all);
+        document.getElementById('yearTotal').textContent = fmtMoney(s.total);
+        document.getElementById('yearPaid').textContent = fmtMoney(s.paid);
+        document.getElementById('yearUnpaid').textContent = fmtMoney(s.unpaid);
     }
 
-    // ---------- 渲染：图表 ----------
+    // ---------- 图表 ----------
 
-    function renderCharts() {
-        renderPlatformChart();
-        renderTrendChart();
-    }
-
-    /** 各平台年度占比（饼图） */
-    function renderPlatformChart() {
-        const ctx = document.getElementById('platformChart');
-        if (!ctx) return;
-
-        // 聚合全年各平台总金额
-        const platformMap = {};
-        for (let m = 1; m <= 12; m++) {
-            const bills = getMonthBills(state.currentYear, m);
-            bills.forEach(b => {
-                if (!platformMap[b.platform]) platformMap[b.platform] = 0;
-                platformMap[b.platform] += Number(b.amount) || 0;
-            });
-        }
-
-        const labels = Object.keys(platformMap);
-        const data = labels.map(l => platformMap[l]);
-        const colors = labels.map((l, i) => {
-            const c = getPlatformColor(l);
-            return c || CHART_COLORS[i % CHART_COLORS.length];
+    /** 聚合各平台账单金额，返回 {labels, data, colors} */
+    function aggregatePlatforms(bills) {
+        const map = {};
+        bills.forEach(function (b) {
+            const amount = Number(b.amount) || 0;
+            if (amount <= 0) return;
+            if (!map[b.platform]) map[b.platform] = 0;
+            map[b.platform] += amount;
         });
+        const labels = Object.keys(map);
+        return {
+            labels: labels,
+            data: labels.map(l => map[l]),
+            colors: labels.map(l => getPlatformColor(l))
+        };
+    }
 
-        if (platformChart) {
-            platformChart.data.labels = labels;
-            platformChart.data.datasets[0].data = data;
-            platformChart.data.datasets[0].backgroundColor = colors;
-            platformChart.update();
-            return;
+    function renderDoughnut(chart, canvasId, agg) {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return chart;
+
+        let labels, data, colors, isEmpty = false;
+        if (agg.labels.length === 0) {
+            isEmpty = true;
+            labels = ['暂无数据'];
+            data = [1];
+            colors = ['#E5E6EB'];
+        } else {
+            labels = agg.labels;
+            data = agg.data;
+            colors = agg.colors;
         }
 
-        platformChart = new Chart(ctx, {
+        const legendPos = window.innerWidth < 640 ? 'bottom' : 'right';
+
+        if (chart) {
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = data;
+            chart.data.datasets[0].backgroundColor = colors;
+            chart.options.plugins.legend.position = legendPos;
+            chart.options.plugins.tooltip.enabled = !isEmpty;
+            chart.update();
+            return chart;
+        }
+
+        return new Chart(ctx, {
             type: 'doughnut',
             data: {
                 labels: labels,
@@ -406,29 +541,39 @@
                 maintainAspectRatio: false,
                 plugins: {
                     legend: {
-                        position: 'right',
-                        labels: {
-                            boxWidth: 12,
-                            padding: 8,
-                            font: { size: 11 }
-                        }
+                        position: legendPos,
+                        labels: { boxWidth: 12, padding: 10, font: { size: 11 } }
                     },
                     tooltip: {
+                        enabled: !isEmpty,
                         callbacks: {
-                            label: function(ctx) {
-                                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                                const pct = total > 0 ? ((ctx.raw / total) * 100).toFixed(1) : 0;
-                                return ` ${ctx.label}: ¥${ctx.raw.toFixed(2)} (${pct}%)`;
+                            label: function (c) {
+                                const total = c.dataset.data.reduce((a, b) => a + b, 0);
+                                const pct = total > 0 ? (c.raw / total * 100).toFixed(1) : '0.0';
+                                return ' ' + c.label + '：¥' + Number(c.raw).toFixed(2) + ' (' + pct + '%)';
                             }
                         }
                     }
                 },
-                cutout: '60%'
+                cutout: '58%'
             }
         });
     }
 
-    /** 每月还款趋势（柱状图） */
+    function renderMonthPie() {
+        const agg = aggregatePlatforms(getMonthBills(state.currentYear, state.currentMonth));
+        monthPieChart = renderDoughnut(monthPieChart, 'monthPieChart', agg);
+    }
+
+    function renderYearPie() {
+        const all = [];
+        for (let m = 1; m <= 12; m++) {
+            getMonthBills(state.currentYear, m).forEach(b => all.push(b));
+        }
+        const agg = aggregatePlatforms(all);
+        yearPieChart = renderDoughnut(yearPieChart, 'yearPieChart', agg);
+    }
+
     function renderTrendChart() {
         const ctx = document.getElementById('trendChart');
         if (!ctx) return;
@@ -436,17 +581,11 @@
         const labels = [];
         const totalData = [];
         const paidData = [];
-
         for (let m = 1; m <= 12; m++) {
-            labels.push(`${m}月`);
-            const bills = getMonthBills(state.currentYear, m);
-            let total = 0, paid = 0;
-            bills.forEach(b => {
-                total += Number(b.amount) || 0;
-                paid += Number(b.paid) || 0;
-            });
-            totalData.push(total);
-            paidData.push(paid);
+            labels.push(m + '月');
+            const s = sumBills(getMonthBills(state.currentYear, m));
+            totalData.push(s.total);
+            paidData.push(s.paid);
         }
 
         if (trendChart) {
@@ -485,31 +624,24 @@
                     legend: {
                         position: 'top',
                         align: 'end',
-                        labels: {
-                            boxWidth: 12,
-                            padding: 8,
-                            font: { size: 11 }
-                        }
+                        labels: { boxWidth: 12, padding: 8, font: { size: 11 } }
                     },
                     tooltip: {
                         callbacks: {
-                            label: function(ctx) {
-                                return ` ${ctx.dataset.label}: ¥${ctx.raw.toFixed(2)}`;
+                            label: function (c) {
+                                return ' ' + c.dataset.label + '：¥' + Number(c.raw).toFixed(2);
                             }
                         }
                     }
                 },
                 scales: {
-                    x: {
-                        grid: { display: false },
-                        ticks: { font: { size: 10 } }
-                    },
+                    x: { grid: { display: false }, ticks: { font: { size: 10 } } },
                     y: {
                         beginAtZero: true,
                         grid: { color: 'rgba(0,0,0,0.05)' },
                         ticks: {
                             font: { size: 10 },
-                            callback: function(v) { return '¥' + v; }
+                            callback: function (v) { return '¥' + v; }
                         }
                     }
                 }
@@ -517,199 +649,21 @@
         });
     }
 
-    // ---------- 弹窗：新增/编辑 ----------
-
-    function openAddModal() {
-        document.getElementById('modalTitle').textContent = '新增还款账单';
-        document.getElementById('billForm').reset();
-        document.getElementById('billId').value = '';
-        document.getElementById('paidAmount').value = '0';
-
-        // 填充平台下拉
-        renderPlatformSelect('');
-
-        // 默认还款日设为当月 10 号（可改）
-        const defaultDate = `${state.currentYear}-${String(state.currentMonth).padStart(2, '0')}-10`;
-        document.getElementById('dueDate').value = defaultDate;
-
-        toggleCustomPlatform();
-        showBillModal();
+    function renderStatsAndCharts() {
+        renderMonthStats();
+        renderYearStats();
+        renderMonthPie();
+        renderYearPie();
+        renderTrendChart();
     }
 
-    function openEditModal(id) {
-        const bills = getMonthBills(state.currentYear, state.currentMonth);
-        const bill = bills.find(b => b.id === id);
-        if (!bill) return;
-
-        document.getElementById('modalTitle').textContent = '编辑还款账单';
-        document.getElementById('billId').value = bill.id;
-        document.getElementById('billAmount').value = bill.amount;
-        document.getElementById('paidAmount').value = bill.paid;
-        document.getElementById('dueDate').value = bill.dueDate || '';
-        document.getElementById('billRemark').value = bill.remark || '';
-
-        renderPlatformSelect(bill.platform);
-        toggleCustomPlatform();
-        showBillModal();
+    function hexToRgba(hex, alpha) {
+        const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        if (!m) return 'rgba(134,144,156,' + alpha + ')';
+        return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + alpha + ')';
     }
 
-    /** 渲染平台下拉（包含自定义平台 + "其他"） */
-    function renderPlatformSelect(selectedName) {
-        const sel = document.getElementById('platformSelect');
-        const platforms = getAllPlatforms();
-        let html = '';
-        platforms.forEach(p => {
-            html += `<option value="${escapeAttr(p.name)}" ${p.name === selectedName ? 'selected' : ''}>${escapeHtml(p.name)}</option>`;
-        });
-        // 如果选中的平台不在列表中（可能之前自定义后又被删除了），也加进去
-        if (selectedName && !platforms.find(p => p.name === selectedName)) {
-            html += `<option value="${escapeAttr(selectedName)}" selected>${escapeHtml(selectedName)}</option>`;
-        }
-        html += `<option value="__other__">+ 自定义平台</option>`;
-        sel.innerHTML = html;
-    }
-
-    function toggleCustomPlatform() {
-        const sel = document.getElementById('platformSelect');
-        const wrap = document.getElementById('customPlatformWrap');
-        if (sel.value === '__other__') {
-            wrap.classList.remove('hidden');
-        } else {
-            wrap.classList.add('hidden');
-        }
-    }
-
-    function showBillModal() {
-        const modal = document.getElementById('billModal');
-        const content = modal.querySelector('.modal-content');
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-        content.classList.remove('modal-leave');
-        content.classList.add('modal-enter');
-        // 聚焦第一个输入框
-        setTimeout(() => document.getElementById('platformSelect').focus(), 200);
-    }
-
-    function hideBillModal() {
-        const modal = document.getElementById('billModal');
-        const content = modal.querySelector('.modal-content');
-        content.classList.remove('modal-enter');
-        content.classList.add('modal-leave');
-        setTimeout(() => {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-        }, 180);
-    }
-
-    /** 提交表单 */
-    function handleFormSubmit(e) {
-        e.preventDefault();
-
-        let platform = document.getElementById('platformSelect').value;
-        const customPlatform = document.getElementById('customPlatform').value.trim();
-        const amountStr = document.getElementById('billAmount').value;
-        const paidStr = document.getElementById('paidAmount').value;
-        const dueDate = document.getElementById('dueDate').value;
-        const remark = document.getElementById('billRemark').value.trim();
-        const editId = document.getElementById('billId').value;
-
-        // 校验
-        if (platform === '__other__') {
-            if (!customPlatform) {
-                showToast('请输入自定义平台名称', 'warning');
-                document.getElementById('customPlatform').focus();
-                return;
-            }
-            platform = customPlatform;
-            // 若该平台不存在，加入自定义列表
-            if (!getAllPlatforms().find(p => p.name === platform)) {
-                state.customPlatforms.push({
-                    name: platform,
-                    color: CHART_COLORS[state.customPlatforms.length % CHART_COLORS.length]
-                });
-                saveStorage();
-            }
-        }
-
-        const amount = parseFloat(amountStr);
-        if (isNaN(amount) || amount < 0) {
-            showToast('请输入有效的账单金额', 'warning');
-            return;
-        }
-
-        const paid = parseFloat(paidStr) || 0;
-        if (paid < 0) {
-            showToast('已还金额不能为负数', 'warning');
-            return;
-        }
-
-        const bills = getMonthBills(state.currentYear, state.currentMonth);
-
-        if (editId) {
-            // 编辑
-            const idx = bills.findIndex(b => b.id === editId);
-            if (idx > -1) {
-                bills[idx] = {
-                    ...bills[idx],
-                    platform,
-                    amount,
-                    paid,
-                    dueDate,
-                    remark
-                };
-            }
-            showToast('账单已更新');
-        } else {
-            // 新增
-            bills.push({
-                id: genId(),
-                platform,
-                amount,
-                paid,
-                dueDate,
-                remark
-            });
-            showToast('账单已添加');
-        }
-
-        setMonthBills(state.currentYear, state.currentMonth, bills);
-        hideBillModal();
-        refreshAll();
-    }
-
-    /** 删除账单 */
-    function deleteBill(id) {
-        const bills = getMonthBills(state.currentYear, state.currentMonth);
-        const bill = bills.find(b => b.id === id);
-        if (!bill) return;
-
-        showConfirm('确认删除', `确定要删除「${bill.platform}」的这条账单吗？`, () => {
-            const newBills = bills.filter(b => b.id !== id);
-            setMonthBills(state.currentYear, state.currentMonth, newBills);
-            showToast('已删除');
-            refreshAll();
-        });
-    }
-
-    /** 清空当月数据 */
-    function clearMonthBills() {
-        const bills = getMonthBills(state.currentYear, state.currentMonth);
-        if (bills.length === 0) {
-            showToast('当月暂无账单', 'warning');
-            return;
-        }
-        showConfirm(
-            '清空当月数据',
-            `确定要清空 ${state.currentYear} 年 ${state.currentMonth} 月的所有账单吗？此操作不可撤销。`,
-            () => {
-                setMonthBills(state.currentYear, state.currentMonth, []);
-                showToast('当月数据已清空');
-                refreshAll();
-            }
-        );
-    }
-
-    // ---------- 导入导出 ----------
+    // ---------- 导入 / 导出 ----------
 
     function exportJSON() {
         const data = {
@@ -722,7 +676,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `还款账单_${state.currentYear}年备份_${new Date().toISOString().slice(0, 10)}.json`;
+        a.download = '还款账单_' + state.currentYear + '年备份_' + new Date().toISOString().slice(0, 10) + '.json';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -732,7 +686,7 @@
 
     function importJSON(file) {
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = function (e) {
             try {
                 const data = JSON.parse(e.target.result);
                 if (!data.bills || typeof data.bills !== 'object') {
@@ -741,35 +695,32 @@
                 showConfirm(
                     '导入备份',
                     '导入将合并到现有数据中，相同月份的账单会追加（不会覆盖）。确定导入吗？',
-                    () => {
-                        // 合并账单
-                        Object.keys(data.bills).forEach(key => {
-                            if (!state.bills[key]) {
-                                state.bills[key] = [];
-                            }
+                    function () {
+                        Object.keys(data.bills).forEach(function (key) {
+                            if (!state.bills[key]) state.bills[key] = [];
                             const existingIds = new Set(state.bills[key].map(b => b.id));
-                            data.bills[key].forEach(b => {
-                                // 给导入的账单生成新 ID，避免冲突
-                                const newBill = { ...b, id: genId() };
-                                // 但如果 ID 已经不存在就直接用
+                            data.bills[key].forEach(function (b) {
+                                const nb = Object.assign({
+                                    amount: 0, paid: 0, dueDate: '', remark: '', custom: false
+                                }, b, { id: genId() });
                                 if (!existingIds.has(b.id)) {
-                                    newBill.id = b.id;
+                                    nb.id = b.id;
                                     existingIds.add(b.id);
                                 }
-                                state.bills[key].push(newBill);
+                                state.bills[key].push(nb);
                             });
                         });
-                        // 合并自定义平台
                         if (Array.isArray(data.customPlatforms)) {
-                            data.customPlatforms.forEach(p => {
+                            data.customPlatforms.forEach(function (p) {
                                 if (!state.customPlatforms.find(cp => cp.name === p.name)) {
                                     state.customPlatforms.push(p);
                                 }
                             });
                         }
                         saveStorage();
+                        renderPlatformGrid();
+                        renderStatsAndCharts();
                         showToast('导入成功');
-                        refreshAll();
                     }
                 );
             } catch (err) {
@@ -779,87 +730,88 @@
         reader.readAsText(file);
     }
 
-    // ---------- HTML 转义 ----------
-
-    function escapeHtml(str) {
-        if (str == null) return '';
-        return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-
-    function escapeAttr(str) {
-        return escapeHtml(str);
-    }
-
-    // ---------- 全局刷新 ----------
-
-    function refreshAll() {
-        renderBillList();
-        renderMonthStats();
-        renderYearStats();
-        renderCharts();
-    }
-
     // ---------- 事件绑定 ----------
 
     function bindEvents() {
-        // 年份切换
-        document.getElementById('yearSelect').addEventListener('change', (e) => {
-            state.currentYear = parseInt(e.target.value);
-            refreshAll();
+        // 年份 / 月份切换：整体重绘
+        document.getElementById('yearSelect').addEventListener('change', function (e) {
+            state.currentYear = parseInt(e.target.value, 10);
+            renderPlatformGrid();
+            renderStatsAndCharts();
+        });
+        document.getElementById('monthSelect').addEventListener('change', function (e) {
+            state.currentMonth = parseInt(e.target.value, 10);
+            renderPlatformGrid();
+            renderStatsAndCharts();
         });
 
-        // 月份切换
-        document.getElementById('monthSelect').addEventListener('change', (e) => {
-            state.currentMonth = parseInt(e.target.value);
-            refreshAll();
+        // 录入网格：事件委托
+        const grid = document.getElementById('platformGrid');
+
+        // 文本输入：即时更新本卡待还金额 + 防抖保存
+        grid.addEventListener('input', function (e) {
+            const field = e.target.dataset && e.target.dataset.field;
+            if (!field) return;
+            const card = e.target.closest('.platform-card');
+            if (card) updateCardState(card);
+            scheduleSave();
         });
 
-        // 添加按钮
-        document.getElementById('btnAdd').addEventListener('click', openAddModal);
-
-        // 取消按钮
-        document.getElementById('btnCancelModal').addEventListener('click', hideBillModal);
-
-        // 点击弹窗背景关闭
-        document.getElementById('billModal').addEventListener('click', (e) => {
-            if (e.target.id === 'billModal') hideBillModal();
+        // 日期选择 / 失焦：立即保存
+        grid.addEventListener('change', function (e) {
+            const field = e.target.dataset && e.target.dataset.field;
+            if (!field) return;
+            const card = e.target.closest('.platform-card');
+            if (card) updateCardState(card);
+            if (saveTimer) clearTimeout(saveTimer);
+            saveGrid();
         });
 
-        // 表单提交
-        document.getElementById('billForm').addEventListener('submit', handleFormSubmit);
+        // 删除自定义项目
+        grid.addEventListener('click', function (e) {
+            const btn = e.target.closest('[data-action="delete-custom"]');
+            if (!btn) return;
+            const card = btn.closest('.platform-card');
+            if (card) deleteCustomItem(card.dataset.platform);
+        });
 
-        // 平台选择切换（显示自定义输入框）
-        document.getElementById('platformSelect').addEventListener('change', toggleCustomPlatform);
+        // 添加自定义项目：虚线按钮 + 悬浮 + 按钮
+        document.getElementById('btnAddCustom').addEventListener('click', openCustomModal);
+        document.getElementById('btnAdd').addEventListener('click', openCustomModal);
+        document.getElementById('btnCustomCancel').addEventListener('click', hideCustomModal);
+        document.getElementById('customModal').addEventListener('click', function (e) {
+            if (e.target.id === 'customModal') hideCustomModal();
+        });
+        document.getElementById('customForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const nameInput = document.getElementById('customName');
+            if (addCustomItem(nameInput.value)) {
+                hideCustomModal();
+            } else {
+                nameInput.focus();
+            }
+        });
 
         // 清空当月
         document.getElementById('btnClearMonth').addEventListener('click', clearMonthBills);
 
-        // 导出
+        // 导入导出
         document.getElementById('btnExport').addEventListener('click', exportJSON);
-
-        // 导入按钮触发文件选择
-        document.getElementById('btnImport').addEventListener('click', () => {
+        document.getElementById('btnImport').addEventListener('click', function () {
             document.getElementById('fileImport').click();
         });
-        document.getElementById('fileImport').addEventListener('change', (e) => {
+        document.getElementById('fileImport').addEventListener('change', function (e) {
             const file = e.target.files[0];
             if (file) importJSON(file);
-            e.target.value = ''; // 重置，以便重复选择同一文件
+            e.target.value = '';
         });
 
-        // ESC 键关闭弹窗
-        document.addEventListener('keydown', (e) => {
+        // ESC 关闭弹窗
+        document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') {
-                const billModal = document.getElementById('billModal');
-                const confirmModal = document.getElementById('confirmModal');
-                if (!billModal.classList.contains('hidden')) {
-                    hideBillModal();
-                } else if (!confirmModal.classList.contains('hidden')) {
+                if (!document.getElementById('customModal').classList.contains('hidden')) {
+                    hideCustomModal();
+                } else if (!document.getElementById('confirmModal').classList.contains('hidden')) {
                     document.getElementById('btnConfirmCancel').click();
                 }
             }
@@ -872,10 +824,10 @@
         loadStorage();
         renderYearMonthSelectors();
         bindEvents();
-        refreshAll();
+        renderPlatformGrid();
+        renderStatsAndCharts();
     }
 
-    // DOM 就绪后初始化
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
