@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#165DFF">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="还款账单">
+    <title>还款账单工作台</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="favicon.svg">
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        success: '#00B42A',
+                        warning: '#FF7D00',
+                        danger: '#F53F3F',
+                        'gray-bg': '#F7F8FA',
+                        'gray-card': '#FFFFFF',
+                        'gray-text': '#86909C',
+                        'gray-border': '#E5E6EB',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-bg min-h-screen pb-24">
+    <!-- 顶部标题栏 -->
+    <header class="bg-gradient-to-r from-primary to-[#4080FF] text-white sticky top-0 z-40 shadow-md">
+        <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <img src="favicon.svg" alt="logo" class="w-8 h-8">
+                <h1 class="text-lg font-bold tracking-wide">还款账单工作台</h1>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="btnExport" class="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors" title="导出备份">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                    </svg>
+                </button>
+                <button id="btnImport" class="p-2 rounded-lg bg-white/20 hover:bg-white/30 transition-colors" title="导入备份">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                </button>
+                <input type="file" id="fileImport" accept=".json" class="hidden">
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 py-5 space-y-5">
+        <!-- 年月选择区 -->
+        <section class="bg-gray-card rounded-2xl p-4 shadow-sm">
+            <div class="flex items-center gap-3">
+                <!-- 年份选择 -->
+                <div class="flex-1">
+                    <label class="text-xs text-gray-text mb-1 block">年份</label>
+                    <div class="relative">
+                        <select id="yearSelect" class="w-full appearance-none bg-gray-bg border border-gray-border rounded-xl px-4 py-2.5 text-base font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+                        </select>
+                        <svg class="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-text pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                </div>
+                <!-- 月份选择 -->
+                <div class="flex-1">
+                    <label class="text-xs text-gray-text mb-1 block">月份</label>
+                    <div class="relative">
+                        <select id="monthSelect" class="w-full appearance-none bg-gray-bg border border-gray-border rounded-xl px-4 py-2.5 text-base font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+                        </select>
+                        <svg class="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-text pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                </div>
+                <!-- 清空当月 -->
+                <div class="flex items-end">
+                    <button id="btnClearMonth" class="px-3 py-2.5 rounded-xl border border-gray-border text-gray-text text-sm hover:bg-danger/10 hover:text-danger hover:border-danger/30 transition-all whitespace-nowrap">
+                        清空当月
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 月度汇总卡片 -->
+        <section class="grid grid-cols-3 gap-3">
+            <div class="bg-gradient-to-br from-primary/10 to-primary/5 rounded-2xl p-4 shadow-sm border border-primary/10">
+                <p class="text-xs text-gray-text mb-1">本月总账单</p>
+                <p class="text-xl font-bold text-primary" id="monthTotal">¥0.00</p>
+            </div>
+            <div class="bg-gradient-to-br from-success/10 to-success/5 rounded-2xl p-4 shadow-sm border border-success/10">
+                <p class="text-xs text-gray-text mb-1">已还总额</p>
+                <p class="text-xl font-bold text-success" id="monthPaid">¥0.00</p>
+            </div>
+            <div class="bg-gradient-to-br from-warning/10 to-warning/5 rounded-2xl p-4 shadow-sm border border-warning/10">
+                <p class="text-xs text-gray-text mb-1">待还总额</p>
+                <p class="text-xl font-bold text-warning" id="monthUnpaid">¥0.00</p>
+            </div>
+        </section>
+
+        <!-- 账单列表 -->
+        <section class="space-y-3">
+            <div class="flex items-center justify-between">
+                <h2 class="text-base font-bold text-gray-800">当月账单</h2>
+                <span class="text-xs text-gray-text" id="billCount">共 0 项</span>
+            </div>
+            <div id="billList" class="space-y-3">
+                <!-- 账单卡片动态生成 -->
+            </div>
+            <!-- 空状态 -->
+            <div id="emptyState" class="hidden bg-gray-card rounded-2xl p-10 text-center shadow-sm">
+                <svg class="w-16 h-16 mx-auto text-gray-border mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                <p class="text-gray-text text-sm">本月暂无还款账单</p>
+                <p class="text-gray-text text-xs mt-1">点击下方 + 添加第一条记录</p>
+            </div>
+        </section>
+
+        <!-- 年度统计板块 -->
+        <section class="space-y-3 pt-2">
+            <h2 class="text-base font-bold text-gray-800"><span id="yearLabel">2026</span> 年度统计</h2>
+            <div class="grid grid-cols-3 gap-3">
+                <div class="bg-gray-card rounded-2xl p-4 shadow-sm border border-gray-border">
+                    <p class="text-xs text-gray-text mb-1">年度总账单</p>
+                    <p class="text-lg font-bold text-primary" id="yearTotal">¥0.00</p>
+                </div>
+                <div class="bg-gray-card rounded-2xl p-4 shadow-sm border border-gray-border">
+                    <p class="text-xs text-gray-text mb-1">年度已还</p>
+                    <p class="text-lg font-bold text-success" id="yearPaid">¥0.00</p>
+                </div>
+                <div class="bg-gray-card rounded-2xl p-4 shadow-sm border border-gray-border">
+                    <p class="text-xs text-gray-text mb-1">年度待还</p>
+                    <p class="text-lg font-bold text-warning" id="yearUnpaid">¥0.00</p>
+                </div>
+            </div>
+
+            <!-- 图表区域 -->
+            <div class="grid md:grid-cols-2 gap-4">
+                <div class="bg-gray-card rounded-2xl p-4 shadow-sm border border-gray-border">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">各平台年度占比</h3>
+                    <div class="relative" style="height: 240px;">
+                        <canvas id="platformChart"></canvas>
+                    </div>
+                </div>
+                <div class="bg-gray-card rounded-2xl p-4 shadow-sm border border-gray-border">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-3">每月还款趋势</h3>
+                    <div class="relative" style="height: 240px;">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 悬浮添加按钮 -->
+    <button id="btnAdd" class="fixed bottom-6 right-6 w-14 h-14 bg-primary hover:bg-primary/90 text-white rounded-full shadow-lg hover:shadow-xl transition-all flex items-center justify-center z-30 active:scale-95">
+        <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+        </svg>
+    </button>
+
+    <!-- 新增/编辑账单弹窗 -->
+    <div id="billModal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4">
+        <div class="bg-gray-card rounded-2xl w-full max-w-md shadow-2xl transform transition-all scale-95 opacity-0 modal-content">
+            <div class="p-5 border-b border-gray-border">
+                <h3 class="text-lg font-bold text-gray-800" id="modalTitle">新增还款账单</h3>
+            </div>
+            <form id="billForm" class="p-5 space-y-4">
+                <input type="hidden" id="billId">
+                <!-- 还款平台 -->
+                <div>
+                    <label class="text-sm text-gray-700 font-medium mb-1.5 block">还款平台 <span class="text-danger">*</span></label>
+                    <div class="relative">
+                        <select id="platformSelect" required class="w-full appearance-none bg-gray-bg border border-gray-border rounded-xl px-4 py-2.5 text-base text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+                        </select>
+                        <svg class="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-gray-text pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                </div>
+                <!-- 自定义平台输入（选择"其他"时显示） -->
+                <div id="customPlatformWrap" class="hidden">
+                    <label class="text-sm text-gray-700 font-medium mb-1.5 block">自定义平台名称 <span class="text-danger">*</span></label>
+                    <input type="text" id="customPlatform" class="w-full bg-gray-bg border border-gray-border rounded-xl px-4 py-2.5 text-base text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" placeholder="请输入平台名称">
+                </div>
+                <!-- 账单金额 -->
+                <div>
+                    <label class="text-sm text-gray-700 font-medium mb-1.5 block">账单金额 (元) <span class="text-danger">*</span></label>
+                    <input type="number" id="billAmount" step="0.01" min="0" required class="w-full bg-gray-bg border border-gray-border rounded-xl px-4 py-2.5 text-base text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" placeholder="0.00">
+                </div>
+                <!-- 已还金额 -->
+                <div>
+                    <label class="text-sm text-gray-700 font-medium mb-1.5 block">已还金额 (元)</label>
+                    <input type="number" id="paidAmount" step="0.01" min="0" value="0" class="w-full bg-gray-bg border border-gray-border rounded-xl px-4 py-2.5 text-base text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" placeholder="0.00">
+                    <p class="text-xs text-gray-text mt-1">待还金额 = 账单金额 - 已还金额，自动计算</p>
+                </div>
+                <!-- 还款日 -->
+                <div>
+                    <label class="text-sm text-gray-700 font-medium mb-1.5 block">还款日</label>
+                    <input type="date" id="dueDate" class="w-full bg-gray-bg border border-gray-border rounded-xl px-4 py-2.5 text-base text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+                </div>
+                <!-- 备注 -->
+                <div>
+                    <label class="text-sm text-gray-700 font-medium mb-1.5 block">备注</label>
+                    <textarea id="billRemark" rows="2" class="w-full bg-gray-bg border border-gray-border rounded-xl px-4 py-2.5 text-base text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none" placeholder="可选，填写备注信息"></textarea>
+                </div>
+                <!-- 按钮 -->
+                <div class="flex gap-3 pt-2">
+                    <button type="button" id="btnCancelModal" class="flex-1 py-3 rounded-xl border border-gray-border text-gray-700 font-medium hover:bg-gray-bg transition-all">取消</button>
+                    <button type="submit" class="flex-1 py-3 rounded-xl bg-primary text-white font-medium hover:bg-primary/90 transition-all active:scale-[0.98]">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 确认弹窗（删除/清空） -->
+    <div id="confirmModal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center p-4">
+        <div class="bg-gray-card rounded-2xl w-full max-w-sm shadow-2xl transform transition-all scale-95 opacity-0 modal-content">
+            <div class="p-6 text-center">
+                <div class="w-14 h-14 mx-auto mb-4 rounded-full bg-warning/10 flex items-center justify-center">
+                    <svg class="w-7 h-7 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-bold text-gray-800 mb-2" id="confirmTitle">确认操作</h3>
+                <p class="text-sm text-gray-text mb-6" id="confirmMsg">确定要执行此操作吗？</p>
+                <div class="flex gap-3">
+                    <button id="btnConfirmCancel" class="flex-1 py-2.5 rounded-xl border border-gray-border text-gray-700 font-medium hover:bg-gray-bg transition-all">取消</button>
+                    <button id="btnConfirmOk" class="flex-1 py-2.5 rounded-xl bg-danger text-white font-medium hover:bg-danger/90 transition-all">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 提示 -->
+    <div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-xl bg-gray-800/90 text-white text-sm shadow-lg transform -translate-y-4 opacity-0 transition-all pointer-events-none">
+        操作成功
+    </div>
+
+    <script src="js/app.js"></script>
+    <script>
+        // 注册 Service Worker（PWA 支持）
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(() => {});
+            });
+        }
+    </script>
+</body>
+</html>
