@@ -3,7 +3,7 @@
  * 采用 Cache-First 策略缓存静态资源
  * ============================================ */
 
-const CACHE_NAME = 'repayment-bills-v1';
+const CACHE_NAME = 'repayment-bills-v2';
 const ASSETS = [
     './',
     './index.html',
