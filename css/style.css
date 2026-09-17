@@ -1,0 +1,37 @@
+* { -webkit-tap-highlight-color: transparent; }
+html { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", "Microsoft YaHei", "Segoe UI", Arial, sans-serif; }
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+#monthTotal, #monthPaid, #monthUnpaid, #yearTotal, #yearPaid, #yearUnpaid { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+.platform-bar { width: 4px; border-radius: 2px 0 0 2px; flex-shrink: 0; }
+.modal-enter { animation: modalIn 0.2s ease-out forwards; }
+.modal-leave { animation: modalOut 0.18s ease-in forwards; }
+@keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+@keyframes modalOut { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.95); } }
+.toast-show { animation: toastIn 0.3s ease-out forwards; }
+.toast-hide { animation: toastOut 0.3s ease-in forwards; }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, -16px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes toastOut { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, -16px); } }
+@media (hover: hover) { .bill-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px -8px rgba(22, 93, 255, 0.15); } }
+.bill-card { transition: all 0.2s ease; }
+.progress-bar { transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
+button:active:not(:disabled) { transform: scale(0.97); }
+button { transition: all 0.15s ease; }
+select { -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+input[type="date"]::-webkit-calendar-picker-indicator { opacity: 0.6; cursor: pointer; }
+@media (min-width: 768px) {
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #F7F8FA; }
+  ::-webkit-scrollbar-thumb { background: #C9CDD4; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #86909C; }
+}
+.tag { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 500; line-height: 1.5; }
+.tag-paid { background-color: rgba(0, 180, 42, 0.1); color: #00B42A; }
+.tag-unpaid { background-color: rgba(255, 125, 0, 0.1); color: #FF7D00; }
+.tag-partial { background-color: rgba(22, 93, 255, 0.1); color: #165DFF; }
+canvas { max-width: 100%; }
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  body { padding-bottom: calc(env(safe-area-inset-bottom) + 6rem); }
+  .fixed.bottom-6 { bottom: calc(1.5rem + env(safe-area-inset-bottom)); }
+}
